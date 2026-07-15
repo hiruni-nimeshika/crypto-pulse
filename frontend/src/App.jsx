@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 
+const API_URL = 'https://cryptopulsebackend1-io6qfx0j.b4a.run';
+
 function App() {
   const [prices, setPrices] = useState({});
   const [email, setEmail] = useState('');
@@ -18,7 +20,7 @@ function App() {
 
   const fetchPrices = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/prices');
+      const response = await fetch(`${API_URL}/api/prices`);
       const data = await response.json();
       setPrices(data);
       setLastUpdated(new Date().toLocaleTimeString());
@@ -30,7 +32,7 @@ function App() {
   const setAlert = async (e) => {
     e.preventDefault();
     try {
-      const response = await fetch('http://localhost:5000/api/alerts', {
+      const response = await fetch(`${API_URL}/api/alerts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
