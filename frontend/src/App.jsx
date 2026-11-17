@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 
-const API_URL = 'https://cryptopulsebackend1-io6qfx0j.b4a.run';
+const IDS = 'bitcoin,ethereum,solana,cardano,polkadot';
+
+// Alerts need the back end. Locally it runs on port 5000.
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (window.location.hostname === 'localhost' ? 'http://localhost:5000' : '');
 
 function App() {
   const [prices, setPrices] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [email, setEmail] = useState('');
   const [coin, setCoin] = useState('bitcoin');
   const [targetPrice, setTargetPrice] = useState('');
@@ -12,50 +19,78 @@ function App() {
   const [messageType, setMessageType] = useState('');
   const [lastUpdated, setLastUpdated] = useState('');
 
+  const fetchPrices = async () => {
+    try {
+      const res = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=' +
+          IDS +
+          '&vs_currencies=usd&include_24hr_change=true'
+      );
+      if (res.status === 429) throw new Error('Rate limit reached');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      setPrices(data);
+      setError(null);
+      setLastUpdated(new Date().toLocaleTimeString());
+    } catch (e) {
+      console.log('Error fetching prices:', e);
+      setError('Could not load market data. Retrying...');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchPrices();
     const interval = setInterval(fetchPrices, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const fetchPrices = async () => {
-    try {
-      const response = await fetch(`${API_URL}/api/prices`);
-      const data = await response.json();
-      setPrices(data);
-      setLastUpdated(new Date().toLocaleTimeString());
-    } catch (error) {
-      console.log('Error fetching prices:', error);
-    }
+  const showMessage = (text, type) => {
+    setMessage(text);
+    setMessageType(type);
   };
 
   const setAlert = async (e) => {
     e.preventDefault();
+
+    const price = parseFloat(targetPrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      showMessage('❌ Target price must be a number greater than 0.', 'error');
+      return;
+    }
+
+    if (!API_URL) {
+      showMessage(
+        'ℹ️ Alerts need the back end, which only runs locally in this demo.',
+        'error'
+      );
+      return;
+    }
+
     try {
       const response = await fetch(`${API_URL}/api/alerts`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          coin,
-          targetPrice: parseFloat(targetPrice)
-        })
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, coin, targetPrice: price }),
       });
-      const data = await response.json();
-      setMessage(data.message || '✅ Alert set successfully!');
-      setMessageType('success');
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        showMessage('❌ ' + (data.message || 'Could not set the alert.'), 'error');
+        return;
+      }
+
+      showMessage(data.message || '✅ Alert set successfully!', 'success');
       setEmail('');
       setTargetPrice('');
-      
+
       setTimeout(() => {
         setMessage('');
         setMessageType('');
       }, 5000);
-    } catch (error) {
-      setMessage('❌ Error setting alert');
-      setMessageType('error');
+    } catch (err) {
+      showMessage('❌ Failed to connect to the server. Please try again later.', 'error');
     }
   };
 
@@ -64,7 +99,7 @@ function App() {
     ethereum: 'Ethereum',
     solana: 'Solana',
     cardano: 'Cardano',
-    polkadot: 'Polkadot'
+    polkadot: 'Polkadot',
   };
 
   const coinIcons = {
@@ -72,7 +107,7 @@ function App() {
     ethereum: '⟠',
     solana: '◎',
     cardano: '₳',
-    polkadot: '●'
+    polkadot: '●',
   };
 
   const coinColors = {
@@ -80,14 +115,13 @@ function App() {
     ethereum: '#627eea',
     solana: '#9945ff',
     cardano: '#0033ad',
-    polkadot: '#e6007a'
+    polkadot: '#e6007a',
   };
 
   const hasPrices = Object.keys(prices).length > 0;
 
   return (
     <div className="app">
-      {/* NAVBAR */}
       <nav className="navbar">
         <div className="nav-container">
           <div className="nav-logo">
@@ -103,7 +137,6 @@ function App() {
         </div>
       </nav>
 
-      {/* HERO SECTION */}
       <section className="hero">
         <div className="hero-content">
           <h1 className="hero-title">
@@ -132,49 +165,77 @@ function App() {
         </div>
       </section>
 
-      {/* PRICE GRID */}
       <section className="prices">
         <div className="section-header">
           <h2>💰 Market Prices</h2>
           <span className="update-time">Updated: {lastUpdated || '--:--:--'}</span>
         </div>
 
-        {!hasPrices ? (
+        {error && hasPrices && (
+          <div className="alert-msg error" role="alert">
+            ⚠️ {error}
+          </div>
+        )}
+
+        {loading ? (
           <div className="loading-state">
             <div className="spinner"></div>
             <p>Loading market data...</p>
           </div>
+        ) : !hasPrices ? (
+          <div className="loading-state" role="alert">
+            <p>⚠️ {error || 'No market data available.'}</p>
+            <button type="button" className="alert-btn" onClick={fetchPrices}>
+              Try again
+            </button>
+          </div>
         ) : (
           <div className="price-grid">
-            {Object.keys(prices).map((coin) => (
-              <div className="price-card" key={coin}>
-                <div className="card-top">
-                  <div className="coin-info">
-                    <span className="coin-icon" style={{ color: coinColors[coin] }}>
-                      {coinIcons[coin] || '🪙'}
-                    </span>
-                    <div>
-                      <div className="coin-name">{coinNames[coin] || coin}</div>
-                      <div className="coin-symbol">{coin.toUpperCase()}</div>
+            {Object.keys(prices).map((id) => {
+              const usd = prices[id].usd;
+              const change = prices[id].usd_24h_change;
+              const hasChange = typeof change === 'number';
+              const isUp = hasChange && change >= 0;
+              const barWidth = hasChange
+                ? Math.max(5, Math.min(Math.abs(change) * 10, 100))
+                : 5;
+              const changeText = hasChange
+                ? (isUp ? '+' : '') + change.toFixed(2) + '%'
+                : '--';
+              const priceText = typeof usd === 'number' ? '$' + usd.toFixed(2) : '--';
+
+              return (
+                <div className="price-card" key={id}>
+                  <div className="card-top">
+                    <div className="coin-info">
+                      <span className="coin-icon" style={{ color: coinColors[id] }}>
+                        {coinIcons[id] || '🪙'}
+                      </span>
+                      <div>
+                        <div className="coin-name">{coinNames[id] || id}</div>
+                        <div className="coin-symbol">{id.toUpperCase()}</div>
+                      </div>
+                    </div>
+                    <div
+                      className="price-change"
+                      style={isUp || !hasChange ? undefined : { color: '#ef4444' }}
+                    >
+                      {changeText}
                     </div>
                   </div>
-                  <div className="price-change">+2.4%</div>
-                </div>
-                <div className="card-bottom">
-                  <div className="price-value">
-                    ${prices[coin].usd?.toFixed(2) || '0.00'}
-                  </div>
-                  <div className="price-bar">
-                    <div className="bar-fill" style={{ width: '65%' }}></div>
+                  <div className="card-bottom">
+                    <div className="price-value">{priceText}</div>
+                    <div className="price-bar">
+                      <div className="bar-fill" style={{ width: barWidth + '%' }}></div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
 
-      {/* ALERT SECTION */}
       <section className="alert-section">
         <div className="alert-container">
           <div className="alert-left">
@@ -237,7 +298,6 @@ function App() {
         </div>
       </section>
 
-      {/* FOOTER */}
       <footer className="footer">
         <p>© 2026 CryptoPulse • Built with React • Powered by CoinGecko API</p>
       </footer>
